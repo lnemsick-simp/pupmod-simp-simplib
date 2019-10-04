@@ -2,7 +2,10 @@ require 'beaker-rspec'
 require 'tmpdir'
 require 'yaml'
 require 'simp/beaker_helpers'
+require 'libkv_helper'
+
 include Simp::BeakerHelpers
+include LibKvHelper
 
 unless ENV['BEAKER_provision'] == 'no'
   hosts.each do |host|
