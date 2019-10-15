@@ -216,6 +216,13 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv') do
       options['complexity'] = options['complexity'].to_i
     end
 
+    if options['gen_timeout_seconds'].to_s !~ /^\d+$/
+      raise ArgumentError,
+        "simplib::passgen: Error: Password generation timeout '#{options['gen_timeout_seconds']}' must be an integer!"
+    else
+      options['gen_timeout_seconds'] = options['gen_timeout_seconds'].to_i
+    end
+
     # Make sure a valid hash has been selected
     if options['hash'] == true
       options['hash'] = 'sha256'

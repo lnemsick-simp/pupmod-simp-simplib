@@ -139,6 +139,11 @@ describe 'simplib::passgen' do
           end
 
           it do
+            is_expected.to run.with_params('spectest', {'gen_timeout_seconds' => 'oops'}).and_raise_error(
+              /Error: Password generation timeout 'oops' must be an integer/)
+          end
+
+          it do
             is_expected.to run.with_params('spectest', {'hash' => 'sha1'}).and_raise_error(
               /Error: 'sha1' is not a valid hash/)
           end
@@ -259,6 +264,11 @@ describe 'simplib::passgen' do
           it do
             is_expected.to run.with_params('spectest', {'complexity' => 'oops'}).and_raise_error(
             /Error: Complexity 'oops' must be an integer/)
+          end
+
+          it do
+            is_expected.to run.with_params('spectest', {'gen_timeout_seconds' => 'oops'}).and_raise_error(
+              /Error: Password generation timeout 'oops' must be an integer/)
           end
 
           it do

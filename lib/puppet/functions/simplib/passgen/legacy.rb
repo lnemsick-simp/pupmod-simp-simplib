@@ -70,12 +70,13 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy') do
     }
 
     base_options = {
-      'return_current' => false,
-      'last'           => false,
-      'length'         => settings['default_password_length'],
-      'hash'           => false,
-      'complexity'     => 0,
-      'complex_only'   => false,
+      'return_current'      => false,
+      'last'                => false,
+      'length'              => settings['default_password_length'],
+      'hash'                => false,
+      'complexity'          => 0,
+      'complex_only'        => false,
+      'gen_timeout_seconds' => 30
     }
 
     options = build_options(base_options, modifier_hash, settings)
@@ -146,6 +147,12 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy') do
       options['complexity'] = options['complexity'].to_i
     end
 
+    if options['gen_timeout_seconds'].to_s !~ /^\d+$/
+      raise ArgumentError,
+        "simplib::passgen: Error: Password generation timeout '#{options['gen_timeout_seconds']}' must be an integer!"
+    else
+      options['gen_timeout_seconds'] = options['gen_timeout_seconds'].to_i
+    end
 
     # Make sure a valid hash was passed if one was passed.
     if options['hash'] == true
@@ -160,16 +167,24 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy') do
 
   # Generate a password
   def gen_password(options)
-    call_function('simplib::gen_random_password', options['length'],
-      options['complexity'], options['complex_only']
+    call_function('simplib::gen_random_password',
+      options['length'],
+      options['complexity'],
+      options['complex_only'],
+      options['gen_timeout_seconds']
     )
   end
 
   # Generate the salt to be used to encrypt a password
-  def gen_salt
+  def gen_salt(options)
     # complexity of 0 is required to prevent disallowed
     # characters from being included in the salt
-    call_function('simplib::gen_random_password', 16, 0)
+    call_function('simplib::gen_random_password',
+      16,    # length
+      0,     # complexity
+      false, # complex_only
+      options['gen_timeout_seconds']
+    )
   end
 
   # Retrieve or generate a current password
@@ -206,7 +221,7 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy') do
       if options.key?('salt')
         salt = options['salt']
       else
-        salt = gen_salt
+        salt = gen_salt(options)
       end
       tgt_hash.puts(salt)
       tgt_hash.rewind
@@ -239,7 +254,7 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy') do
         tgt.rewind
         tgt.truncate(0)
         passwd = gen_password(options)
-        salt = gen_salt
+        salt = gen_salt(options)
 
         tgt.puts(passwd)
         tgt_hash.puts(salt)
@@ -276,7 +291,7 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy') do
         if options.key?('salt')
           salt = options['salt']
         else
-          salt = gen_salt
+          salt = gen_salt(options)
         end
         saltfile.puts(salt)
         saltfile.close
