@@ -1,12 +1,24 @@
 # Generates/retrieves a random password string or its hash for a
 # passed identifier.
 #
-# * Persists the passwords using libkv.
+# * Supports 2 implementations:
+#   * Legacy
+#     * Persists the passwords using libkv.
+#     * Terminates catalog compilation if `password_options` contains invalid
+#       parameters, any libkv operation fails or the password cannot be
+#       created in the allotted time.
+#   * libkv
+#     * Uses
+#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`
+#       as the destination directory for password storage.
+#     * Terminates catalog compilation if the password storage directory
+#       cannot be created/accessed by the Puppet user, the password cannot
+#       be created in the allotted time, or files not owned by the Puppet
+#       user are present in the password storage directory.
+# * To enable libkv implementation, set `simplib::passgen::libkv` to `true`
+#   in hieradata.
 # * The minimum length password that this function will return is `8`
 #   characters.
-# * Terminates catalog compilation if `password_options` contains invalid
-#   parameters, any libkv operation fails or the password cannot be created
-#   in the allotted time.
 #
 Puppet::Functions.create_function(:'simplib::passgen') do
 
@@ -137,236 +149,14 @@ Puppet::Functions.create_function(:'simplib::passgen') do
     optional_param 'Hash',      :libkv_options
   end
 
-  def passgen(identifier, password_options=nil, libkv_options={'app_id' => 'simplib::passgen'})
-    require 'timeout'
-
-    # internal settings
-    settings = {}
-    settings['key_root_dir'] = 'gen_passwd'
-    settings['min_password_length'] = 8
-    settings['default_password_length'] = 32
-    settings['crypt_map'] = {
-      'md5'     => '1',
-      'sha256'  => '5',
-      'sha512'  => '6'
-    }
-
-    base_options = {
-      'last'                => false,
-      'length'              => settings['default_password_length'],
-      'hash'                => false,
-      'complexity'          => 0,
-      'complex_only'        => false,
-      'gen_timeout_seconds' => 30,
-
-      # internal options
-      'length_configured'   => false,
-      'key_root_dir'        => settings['key_root_dir']
-    }
-
-    options = build_options(base_options, password_options, settings)
-
+  def passgen(identifier, password_options={}, libkv_options={'app_id' => 'simplib::passgen'})
+    use_libkv = call_function('lookup', 'simplib::passgen::libkv', { 'default_value' => false })
     password = nil
-    salt = nil
-    begin
-      if options['last']
-        password,salt = get_last_password(identifier, options, libkv_options)
-      else
-        password,salt = get_current_password(identifier, options, libkv_options)
-      end
-    rescue Timeout::Error => e
-      # can get here if simplib::gen_random_password times out
-      fail("simplib::passgen timed out for '#{identifier}'!")
-    end
-
-    # Return the hash, not the password
-    if options['hash']
-      return password.crypt("$#{settings['crypt_map'][options['hash']]}$#{salt}")
+    if use_libkv
+      password = call_function('simplib::passgen::libkv', identifier, password_options, libkv_options)
     else
-      return password
+      password = call_function('simplib::passgen::legacy', identifier, password_options)
     end
+    password
   end
-
-
-  # Build a merged options hash and validate the options
-  # @raise ArgumentError if any option in the password_options is invalid
-  def build_options(base_options, password_options, settings)
-    options = base_options.dup
-    return options if password_options.nil?
-
-    options.merge!(password_options)
-    options['length_configured'] = true if password_options['length']
-
-    if options['length'].to_s !~ /^\d+$/
-      raise ArgumentError,
-        "simplib::passgen: Error: Length '#{options['length']}' must be an integer!"
-    else
-      options['length'] = options['length'].to_i
-      if options['length'] == 0
-        options['length'] = settings['default_password_length']
-      elsif options['length'] < settings['min_password_length']
-        options['length'] = settings['min_password_length']
-      end
-    end
-
-    if options['complexity'].to_s !~ /^\d+$/
-      raise ArgumentError,
-        "simplib::passgen: Error: Complexity '#{options['complexity']}' must be an integer!"
-    else
-      options['complexity'] = options['complexity'].to_i
-    end
-
-    # Make sure a valid hash has been selected
-    if options['hash'] == true
-      options['hash'] = 'sha256'
-    end
-    if options['hash'] and !settings['crypt_map'].keys.include?(options['hash'])
-      raise ArgumentError,
-       "simplib::passgen: Error: '#{options['hash']}' is not a valid hash."
-    end
-
-    return options
-  end
-
-  # Create a <password,salt> pair and then store it in the key/value store
-  # @return [password, salt]
-  def create_and_store_password(password_key, options, libkv_options)
-    password = gen_password(options)
-    salt = gen_salt(options)
-    store_password_info(password, salt, options, password_key, libkv_options)
-    [password, salt]
-  end
-
-  # Generate a password
-  # @raise Timeout::Error if password generation times out
-  def gen_password(options)
-    call_function('simplib::gen_random_password',
-      options['length'],
-      options['complexity'],
-      options['complex_only'],
-      options['gen_timeout_seconds']
-    )
-  end
-
-  # Generate the salt to be used to encrypt a password
-  # @raise Timeout::Error if password generation times out
-  def gen_salt(options)
-    # complexity of 0 is required to prevent disallowed
-    # characters from being included in the salt
-    call_function('simplib::gen_random_password',
-      16,    # length
-      0,     # complexity
-      false, # complex_only
-      options['gen_timeout_seconds']
-    )
-  end
-
-  # Retrieve or generate a current password and its salt
-  #
-  # * If the current password doesn't exist in the key/value store, generate
-  #   both the password and its salt and store them in the key/value store.
-  # * If the current password exists, retrieve it and its salt from the
-  #   key/value store, and validate it.
-  #   * If the password has the correct length per the options, use it.
-  #   * Otherwise, store this password and its salt as the last password in
-  #     the key/value store, generate a new the password and salt, and then
-  #     store the new values as the current password in the key/value store.
-  #
-  # @return current [password, salt]
-  # @raise if any libkv operation fails or password/salt generation times out.
-  #
-  def get_current_password(identifier, options, libkv_options)
-    current_key = "#{options['key_root_dir']}/#{identifier}"
-    password = nil
-    salt = nil
-    generate = false
-    if call_function('libkv::exists', current_key, libkv_options)
-      password, salt = retrieve_password_info(current_key, libkv_options)
-      unless valid_length?(password, options)
-        # store old password
-        last_key = "#{current_key}.last"
-        store_password_info(password, salt, options, last_key, libkv_options)
-        generate = true
-      end
-    else
-      generate = true
-    end
-
-    if generate
-      password, salt = create_and_store_password(current_key, options,
-        libkv_options)
-    end
-
-    [password, salt]
-  end
-
-  # Retrieve lastest password and its salt, generating the password
-  # if needed
-  #
-  #  * If the last password key exists in the key/value store, retrieve
-  #    it and its salt from the store.
-  #  * Otherwise, if the current password key exists in the key/value
-  #    store, retrieve it and its salt from the store.
-  #  * Otherwise, create a freshly-generated password and salt, store it
-  #    in the key/value store and warn the user about a probable manifest
-  #    ordering problems.
-  #
-  # @return last [password, salt]
-  # @raise if any libkv operation fails or password/salt generation times out.
-  #
-  def get_last_password(identifier, options, libkv_options)
-    current_key = "#{options['key_root_dir']}/#{identifier}"
-    last_key = "#{current_key}.last"
-    password = nil
-    salt = nil
-    if call_function('libkv::exists', last_key, libkv_options)
-      password, salt = retrieve_password_info(last_key, libkv_options)
-    elsif call_function('libkv::exists', current_key, libkv_options)
-      password, salt = retrieve_password_info(current_key, libkv_options)
-    else
-      warn_msg = "Could not retrieve a last or current value for" +
-        " #{identifier}. Generating a new value for 'last'. Please ensure" +
-        " that you have used simplib::passgen in the proper order in your" +
-        " manifest!"
-      Puppet.warning warn_msg
-      # generate password and salt and then store
-      password, salt = create_and_store_password(last_key, options,
-        libkv_options)
-    end
-
-    [password, salt]
-  end
-
-  # @return [password, salt] retrieved from the key/value store
-  def retrieve_password_info(password_key, libkv_options)
-    key_info = call_function('libkv::get', password_key, libkv_options)['value']
-    password = key_info['password']
-    salt = key_info['salt']
-
-    [password, salt]
-  end
-
-  # store a password and its salt in the key/value store along with
-  # metadata containing the password's complexity and complex_only settings
-  def store_password_info(password, salt, options, password_key, libkv_options)
-    key_info = { 'password' => password, 'salt' => salt }
-    metadata = {
-      'complexity'   => options['complexity'],
-      'complex_only' => options['complex_only']
-    }
-
-    call_function('libkv::put', password_key, key_info, metadata, libkv_options)
-  end
-
-  # @return whether password length conforms to user specification
-  def valid_length?(password, options)
-    if options['length_configured']
-      valid = (password.length == options['length'])
-    else
-      valid = true
-    end
-
-    valid
-  end
-
 end
