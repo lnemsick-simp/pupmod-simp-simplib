@@ -157,11 +157,7 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv') do
       'hash'                => false,
       'complexity'          => 0,
       'complex_only'        => false,
-      'gen_timeout_seconds' => 30,
-
-      # internal options
-      'length_configured'   => false,
-      'key_root_dir'        => settings['key_root_dir']
+      'gen_timeout_seconds' => 30
     }
 
     options = build_options(base_options, password_options, settings)
@@ -192,10 +188,11 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv') do
   # @raise ArgumentError if any option in the password_options is invalid
   def build_options(base_options, password_options, settings)
     options = base_options.dup
-    return options if password_options.nil?
-
     options.merge!(password_options)
-    options['length_configured'] = true if password_options['length']
+
+    # set internal options
+    options['length_configured'] = password_options.has_key?('length')
+    options['key_root_dir']      = settings['key_root_dir']
 
     if options['length'].to_s !~ /^\d+$/
       raise ArgumentError,
