@@ -2474,8 +2474,10 @@ Defaults to `false`.
 
 Data type: `Optional[Hash]`
 
-libkv configuration that will be merged with
-`libkv::options`.  All keys are optional.
+libkv configuration when in libkv mode.
+
+  * Will be merged with `libkv::options`.
+  * All keys are optional.
 
 Options:
 

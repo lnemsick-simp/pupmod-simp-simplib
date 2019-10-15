@@ -57,8 +57,11 @@ Puppet::Functions.create_function(:'simplib::passgen') do
   #     * Value of `0` disables the timeout.
   #     * Defaults to `30`.
   #
-  # @param libkv_options libkv configuration that will be merged with
-  #   `libkv::options`.  All keys are optional.
+  # @param libkv_options
+  #   libkv configuration when in libkv mode.
+  #
+  #     * Will be merged with `libkv::options`.
+  #     * All keys are optional.
   #
   # @option libkv_options [String] 'app_id'
   #   Specifies an application name that can be used to identify which backend
