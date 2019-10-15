@@ -161,12 +161,6 @@ Puppet::Functions.create_function(:'simplib::passgen') do
       'simp_autofiles', 'gen_passwd'
     )
 
-    # archive for legacy key and salt files that are migrated into libkv
-    settings['archive_key_dir'] = File.join(Puppet.settings[:vardir], 'simp',
-      'environments', scope.lookupvar('::environment'),
-      'simp_autofiles', '.gen_passwd'
-    )
-
     base_options = {
       'last'                => false,
       'length'              => settings['default_password_length'],
@@ -213,7 +207,6 @@ Puppet::Functions.create_function(:'simplib::passgen') do
     options['length_configured'] = password_options.has_key?('length')
     options['key_root_dir']      = settings['key_root_dir']
     options['legacy_key_dir']    = settings['legacy_key_dir']
-    options['archive_key_dir']   = settings['archive_key_dir']
 
     # validate
     if options['length'].to_s !~ /^\d+$/
@@ -301,6 +294,9 @@ Puppet::Functions.create_function(:'simplib::passgen') do
     generate = false
     if call_function('libkv::exists', current_key, libkv_options)
       password, salt = retrieve_password_info(current_key, libkv_options)
+      # TODO Should we validate the length, complexity and complex_only settings
+      # still match settings persisted with last password?  Couldn't do that
+      # with the legacy simplib::passgen implementation, but could do that now!
       unless valid_length?(password, options)
         # store old password
         last_key = "#{current_key}.last"
@@ -356,19 +352,66 @@ Puppet::Functions.create_function(:'simplib::passgen') do
     [password, salt]
   end
 
+  # Read in/generate the legacy salt
+  #
+  # Creates a legacy salt file if the file does not exist or the salt is empty.
+  #
+  # @return salt
+  def get_legacy_salt(salt_file, options)
+    create_legacy_salt_file = false
+    if File.exist?(salt_file)
+      salt = IO.readlines(salt_file)[0].to_s.chomp
+      create_legacy_salt_file = true if salt.empty?
+    else
+      create_legacy_salt_file = true
+    end
+
+    if create_legacy_salt_file
+      salt = gen_salt(options)
+      file = File.new(salt_file,'w')
+      file.puts(salt)
+      file.flush
+      file.close
+      FileUtils.chmod(0660, salt_file)
+    end
+
+    salt
+  end
+
   # Migrate any existing key and salt files for the identifier into libkv
+  #
+  # BACKGROUND
+  # Migration is a little tricky in two scenarios:
+  # - A user changes the password using a legacy version of `simp passgen` that
+  #   only operates on password files in the legacy password directory.
+  # - More than one environment has been using the same legacy password
+  #   directory (e.g., via directory links) and at least one of those
+  #   environments is still using a version of simplib::passgen that does not
+  #   use libkv.
+  #
+  # In these cases, instead of just importing the password info into libkv once
+  # for an environment, this code has to make sure any already imported password
+  # is current.  If it was updated using legacy methods, the old value must be
+  # stored as a 'last' value and the new value must be stored as the 'current'
+  # value.
+  #
+  # Another relevant OBTW that can't be solved without bug fixes to legacy code
+  # is that the legacy password files could be in the process of being modified
+  # when we read them here.  Neither legacy `simplib::passgen` or `simp passgen`
+  # employed any file locking to prevent this problem.
+  #
+  # MIGRATION ALGORITHM
   #
   # * Stores the current password and salt in libkv, when the files exist.
   # * Stores the last password and salt in libkv, when the files exist.
   # * Archives processed files.
   # * When a password is missing its salt file or the salt is empty, generates
   #   a salt for it before storing in libkv.
-  # * When the password file is missing or the password is empty, does not
-  #   store in libkv. Just archives.
+  # * When the password file is missing or the password is empty, removes
+  #   the files, as they cannot be used.
   #
   # @raise Exception if cannot retrieve migration lock or any libkv store fails
   def migrate_old_files(identifier, options, libkv_options)
-    return unless Dir.exist?(options['legacy_key_dir'])
     return if Dir.glob(File.join(options['legacy_key_dir'], "#{identifier}*")).empty?
 
     file = nil
@@ -381,8 +424,6 @@ Puppet::Functions.create_function(:'simplib::passgen') do
       Timeout::timeout(options['gen_timeout_seconds']) do
         file.flock(File::LOCK_EX)
       end
-
-      FileUtils.mkdir_p(options['archive_key_dir'])
 
       current      = File.join(options['legacy_key_dir'], identifier)
       current_salt = File.join(options['legacy_key_dir'], "#{identifier}.salt")
@@ -403,32 +444,43 @@ Puppet::Functions.create_function(:'simplib::passgen') do
     end
   end
 
-  # Store the password and salt in libkv and then archive the files.
+  # Store the password and salt in libkv
   #
-  # Generates a salt if the existing salt is empty or missing.
-  # Just archives if only the salt file exists or the password is empty.
+  # * Stores valid password info in libkv when not already present
+  #   * does not overwrite in order to preserve the initial password timestamp
+  # * Removes legacy files and returns without a libkv store when it encounters
+  #   the following error conditions:
+  #   * the password is empty
+  #   * only the salt file exists.
+  # * Fixes the following error condition and then executes a libkv store
+  #   * the existing salt is empty or salt file is missing
   #
   # @raise Exception if the libkv store operation fails
   def migrate_old_file_pair(password_file, salt_file, password_key,
       options, libkv_options)
 
-    archive_dir = options['archive_key_dir']
+    remove_bad_files = false
+    password = nil
+    salt = nil
     if File.exist?(password_file)
-      # only store if password file exists
       password = IO.readlines(password_file)[0].to_s.chomp
-      unless password.empty?
-        salt = File.exist?(salt_file) ? IO.readlines(salt_file)[0].to_s.chomp : ''
-        salt = gen_salt(options) if salt.empty?
-        store_password_info(password, salt, options, password_key, libkv_options)
+      if password.empty?
+        # only store if valid password file exists
+        remove_bad_files = true
+      else
+        salt = get_legacy_salt(salt_file, options)
       end
-
-      archive_file = File.join(archive_dir, File.basename(password_file))
-      FileUtils.mv(password_file, archive_file)
+    else
+      # only store if password file exists
+      remove_bad_files = true
     end
 
-    if File.exist?(salt_file)
-      archive_file = File.join(archive_dir, File.basename(salt_file))
-      FileUtils.mv(salt_file, archive_file)
+    if remove_bad_files
+      File.unlink(password_file) if File.exist?(password_file)
+      File.unlink(salt_file) if File.exist?(salt_file)
+    else
+      store_password_changes(password, salt, options, password_key,
+        libkv_options)
     end
   end
 
@@ -439,6 +491,31 @@ Puppet::Functions.create_function(:'simplib::passgen') do
     salt = key_info['salt']
 
     [password, salt]
+  end
+
+  # store changed password info
+  #
+  # When existing password+salt in libkv is different than requested password
+  # and salt, stores the password and its salt in the key/value store along with
+  # metadata containing the password's complexity and complex_only settings
+  #
+  def store_password_changes(password, salt, options, password_key,
+    libkv_options)
+
+    store_required = false
+    if call_function('libkv::exists', password_key, libkv_options)
+      stored_password, stored_salt = retrieve_password_info(password_key,
+        libkv_options)
+      if (stored_password != password) || (stored_salt != salt)
+        store_required = true
+      end
+    else
+      store_required = true
+    end
+
+    if store_required
+      store_password_info(password, salt, options, password_key, libkv_options)
+    end
   end
 
   # store a password and its salt in the key/value store along with

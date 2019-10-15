@@ -2,6 +2,20 @@
 require 'spec_helper'
 require 'base64'
 
+def create_legacy_files(vardir, key, value, salt, last = false)
+  old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
+    'simp_autofiles', 'gen_passwd')
+
+  FileUtils.mkdir_p(old_keydir)
+  password_file = File.join(old_keydir, key)
+  password_file += '.last' if last
+  File.open(password_file, 'w') { |file| file.puts(value) } unless password.nil?
+  salt_file = File.join(old_keydir, "#{key}.salt")
+  salt_file += '.last' if last
+  File.open(salt_file, 'w') { |file| file.puts(salt) } unless salt.nil?
+  [ password_file, salt_file ]
+end
+
 def locked_operation(lockfile, &block)
   locker_thread = nil   # thread that will lock the file
   mutex = Mutex.new
@@ -367,6 +381,8 @@ describe 'simplib::passgen' do
         let(:key) { 'user1' }
         let(:password) { 'user1 password' }
         let(:salt) { 'user1 salt'}
+        let(:alt_password) { 'user1 alt password' }
+        let(:alt_salt) { 'user1 alt salt'}
 
         it 'should do nothing to old keydir when it has no files for the key' do
           # populate old keydir with a password file for a different key
@@ -375,30 +391,31 @@ describe 'simplib::passgen' do
           old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
             'simp_autofiles', 'gen_passwd')
 
-          FileUtils.mkdir_p(old_keydir)
-          otheruser_passwd_file = File.join(old_keydir, 'other user')
-          File.open(otheruser_passwd_file, 'w') { |file| file.puts('otheruser password') }
+          create_legacy_files(vardir, 'user2', 'other user password', 'user2 salt')
 
           result = subject.execute(key)
           expect(result.length).to eq 32
 
-          expect( File.exist?(otheruser_passwd_file) ).to be true
-          archive_dir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', '.gen_passwd')
-          expect( Dir.exist?(archive_dir) ).to be false
+          # should create and store a password for the key, but not create
+          # legacy files
+          stored_info = call_function('libkv::get', "gen_passwd/#{key}")
+          expect(stored_info['value']['password']).to_not be_empty
+          expect(stored_info['value']['salt']).to_not be_empty
+
+          password_file = File.join(vardir, 'simp', 'environments', 'rp_env',
+            'simp_autofiles', 'gen_passwd', key)
+          expect( File.exist?(password_file) ).to be false
+
+          salt_file = "#{password_file}.salt"
+          expect( File.exist?(salt_file) ).to be false
         end
 
         it 'should migrate current password and salt' do
           # populate old keydir with current password and salt files for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          password_file = File.join(old_keydir, key)
-          File.open(password_file, 'w') { |file| file.puts(password) }
-          salt_file =  "#{password_file}.salt"
-          File.open(salt_file, 'w') { |file| file.puts(salt) }
+          password_file, salt_file =
+            create_legacy_files(vardir, key, password, salt)
 
           result = subject.execute(key)
           expect(result).to eq password
@@ -408,28 +425,17 @@ describe 'simplib::passgen' do
           expect(stored_info['value']['password']).to eq password
           expect(stored_info['value']['salt']).to eq salt
 
-          expect( File.exist?(password_file) ).to be false
-          expect( File.exist?(salt_file) ).to be false
-
-          archive_password_file = password_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_password_file) ).to be true
-          expect( IO.read(archive_password_file).strip ).to eq password
-          archive_salt_file = salt_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_salt_file) ).to be true
-          expect( IO.read(archive_salt_file).strip ).to eq salt
+          # legacy files should still be hanging around
+          expect( File.exist?(password_file) ).to be true
+          expect( File.exist?(salt_file) ).to be true
         end
 
         it 'should migrate last password and salt' do
           # populate old keydir with last password and salt files for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          last_password_file = File.join(old_keydir, "#{key}.last")
-          File.open(last_password_file, 'w') { |file| file.puts(password) }
-          last_salt_file = File.join(old_keydir, "#{key}.salt.last")
-          File.open(last_salt_file, 'w') { |file| file.puts(salt) }
+          last_password_file, last_salt_file =
+            create_legacy_files(vardir, key, password, salt, true)
 
           result = subject.execute(key, {'last' => true})
           expect(result).to eq password
@@ -439,26 +445,17 @@ describe 'simplib::passgen' do
           expect(stored_info['value']['password']).to eq password
           expect(stored_info['value']['salt']).to eq salt
 
-          expect( File.exist?(last_password_file) ).to be false
-          expect( File.exist?(last_salt_file) ).to be false
-
-          archive_password_file = last_password_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_password_file) ).to be true
-          archive_salt_file = last_salt_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_salt_file) ).to be true
+          # legacy files should still be hanging around
+          expect( File.exist?(last_password_file) ).to be true
+          expect( File.exist?(last_salt_file) ).to be true
         end
 
-        it 'should generate salt for current password when existing salt is empty' do
+        it 'should regenerate salt and replace in legacy salt file for current password when existing salt is empty' do
           # populate old keydir with current password and salt files for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          password_file = File.join(old_keydir, key)
-          File.open(password_file, 'w') { |file| file.puts(password) }
-          salt_file =  "#{password_file}.salt"
-          File.open(salt_file, 'w') { |file| file.puts('') }
+          password_file, salt_file =
+            create_legacy_files(vardir, key, password, '')
 
           result = subject.execute(key)
           expect(result).to eq password
@@ -468,24 +465,17 @@ describe 'simplib::passgen' do
           expect(stored_info['value']['password']).to eq password
           expect(stored_info['value']['salt']).to_not be_empty
 
-          expect( File.exist?(password_file) ).to be false
-          expect( File.exist?(salt_file) ).to be false
-
-          archive_password_file = password_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_password_file) ).to be true
-          archive_salt_file = salt_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_salt_file) ).to be true
+          expect( File.exist?(password_file) ).to be true
+          expect( File.exist?(salt_file) ).to be true
+          expect( IO.read(salt_file).strip ).to eq stored_info['value']['salt']
         end
 
-        it 'should generate salt for current password when existing salt is missing' do
+        it 'should generate salt and legacy salt file for current password when existing salt is missing' do
           # populate old keydir with current password file for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          password_file = File.join(old_keydir, key)
-          File.open(password_file, 'w') { |file| file.puts(password) }
+          password_file, salt_file =
+            create_legacy_files(vardir, key, password, nil)
 
           result = subject.execute(key)
           expect(result).to eq password
@@ -495,23 +485,18 @@ describe 'simplib::passgen' do
           expect(stored_info['value']['password']).to eq password
           expect(stored_info['value']['salt']).to_not be_empty
 
-          expect( File.exist?(password_file) ).to be false
-
-          archive_password_file = password_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_password_file) ).to be true
+          expect( File.exist?(password_file) ).to be true
+          salt_file =  "#{password_file}.salt"
+          expect( File.exist?(salt_file) ).to be true
+          expect( IO.read(salt_file).strip ).to eq stored_info['value']['salt']
         end
 
-        it 'should generate salt for last password when existing salt is empty' do
+        it 'should regenerate salt and replace in legacy salt file for last password when existing salt is empty' do
           # populate old keydir with last password and salt files for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          last_password_file = File.join(old_keydir, "#{key}.last")
-          File.open(last_password_file, 'w') { |file| file.puts(password) }
-          last_salt_file = File.join(old_keydir, "#{key}.salt.last")
-          File.open(last_salt_file, 'w') { |file| file.puts('') }
+          last_password_file, last_salt_file =
+            create_legacy_files(vardir, key, password, '', true)
 
           result = subject.execute(key, {'last' => true})
           expect(result).to eq password
@@ -521,24 +506,17 @@ describe 'simplib::passgen' do
           expect(stored_info['value']['password']).to eq password
           expect(stored_info['value']['salt']).to_not be_empty
 
-          expect( File.exist?(last_password_file) ).to be false
-          expect( File.exist?(last_salt_file) ).to be false
-
-          archive_password_file = last_password_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_password_file) ).to be true
-          archive_salt_file = last_salt_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_salt_file) ).to be true
+          expect( File.exist?(last_password_file) ).to be true
+          expect( File.exist?(last_salt_file) ).to be true
+          expect( IO.read(last_salt_file).strip ).to eq stored_info['value']['salt']
         end
 
-        it 'should generate salt for last password when existing salt is missing' do
+        it 'should generate salt and legacy salt file for last password when existing salt is missing' do
           # populate old keydir with last password file for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          last_password_file = File.join(old_keydir, "#{key}.last")
-          File.open(last_password_file, 'w') { |file| file.puts(password) }
+          last_password_file, last_salt_file =
+            create_legacy_files(vardir, key, password, nil, true)
 
           result = subject.execute(key, {'last' => true})
           expect(result).to eq password
@@ -548,58 +526,77 @@ describe 'simplib::passgen' do
           expect(stored_info['value']['password']).to eq password
           expect(stored_info['value']['salt']).to_not be_empty
 
-          expect( File.exist?(last_password_file) ).to be false
-
-          archive_password_file = last_password_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_password_file) ).to be true
+          expect( File.exist?(last_password_file) ).to be true
+          expect( File.exist?(last_salt_file) ).to be true
+          expect( IO.read(last_salt_file).strip ).to eq stored_info['value']['salt']
         end
 
-        it 'should only archive current salt file without a current password file' do
+        it 'should remove current salt file without a current password file and generate and store new values' do
           # populate old keydir with current salt file for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          salt_file = File.join(old_keydir, "#{key}.salt")
-          File.open(salt_file, 'w') { |file| file.puts(salt) }
+          password_file, salt_file =
+            create_legacy_files(vardir, key, nil, salt)
 
           result = subject.execute(key)
-          expect(result).to_not eq password
+          expect(result).to_not be_empty
 
           # retrieve what has been stored by libkv and validate
           stored_info = call_function('libkv::get', "gen_passwd/#{key}")
-          expect(stored_info['value']['password']).to_not eq password
-          expect(stored_info['value']['salt']).to_not eq salt
+          expect(stored_info['value']['password']).to_not be_empty
+          expect(stored_info['value']['salt']).to_not be_empty
 
           expect( File.exist?(salt_file) ).to be false
-
-          archive_salt_file = salt_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_salt_file) ).to be true
         end
 
-        it 'should only archive last salt file without a last password file' do
+        it 'should remove last salt file without a last password file' do
           # populate old keydir with last salt file for the key
           subject()
           vardir = Puppet[:vardir]
-          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
-            'simp_autofiles', 'gen_passwd')
-          FileUtils.mkdir_p(old_keydir)
-          last_salt_file = File.join(old_keydir, "#{key}.salt.last")
-          File.open(last_salt_file, 'w') { |file| file.puts(salt) }
+          last_password_file, last_salt_file =
+            create_legacy_files(vardir, key, nil, salt, true)
 
           result = subject.execute(key, {'last' => true})
           expect(result).to_not eq password
 
           # retrieve what has been stored by libkv and validate
           stored_info = call_function('libkv::get', "gen_passwd/#{key}.last")
-          expect(stored_info['value']['password']).to_not eq password
-          expect(stored_info['value']['salt']).to_not eq salt
+          expect(stored_info['value']['password']).to_not be_empty
+          expect(stored_info['value']['salt']).to_not be_empty
 
           expect( File.exist?(last_salt_file) ).to be false
+        end
 
-          archive_salt_file = last_salt_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_salt_file) ).to be true
+        it 'should overwrite current stored info with legacy file info when passwords differ' do
+          subject()
+          vardir = Puppet[:vardir]
+          # import first password value
+          
+          # verify will import second password value
+        end
+
+        it 'should overwrite current stored info with legacy file info when salts differ' do
+          subject()
+          vardir = Puppet[:vardir]
+          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
+            'simp_autofiles', 'gen_passwd')
+          FileUtils.mkdir_p(old_keydir)
+        end
+
+        it 'should overwrite last stored info with legacy file info when passwords differ' do
+          subject()
+          vardir = Puppet[:vardir]
+          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
+            'simp_autofiles', 'gen_passwd')
+          FileUtils.mkdir_p(old_keydir)
+        end
+
+        it 'should overwrite last stored info with legacy file info when salts differ' do
+          subject()
+          vardir = Puppet[:vardir]
+          old_keydir =  File.join(vardir, 'simp', 'environments', 'rp_env',
+            'simp_autofiles', 'gen_passwd')
+          FileUtils.mkdir_p(old_keydir)
         end
 
         it 'should fail migration when lock cannot be obtained' do
@@ -626,10 +623,6 @@ describe 'simplib::passgen' do
 
           expect( File.exist?(password_file) ).to be true
           expect( File.exist?(salt_file) ).to be true
-          archive_password_file = password_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_password_file) ).to be false
-          archive_salt_file = salt_file.gsub('gen_passwd', '.gen_passwd')
-          expect( File.exist?(archive_salt_file) ).to be false
         end
       end
 
