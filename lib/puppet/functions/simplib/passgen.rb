@@ -158,9 +158,9 @@ Puppet::Functions.create_function(:'simplib::passgen') do
     use_libkv = call_function('lookup', 'simplib::passgen::libkv', { 'default_value' => false })
     password = nil
     if use_libkv
-      password = call_function('simplib::passgen::libkv', identifier, password_options, libkv_options)
+      password = call_function('simplib::libkv::passgen', identifier, password_options, libkv_options)
     else
-      password = call_function('simplib::passgen::legacy', identifier, password_options)
+      password = call_function('simplib::legacy::passgen', identifier, password_options)
     end
     password
   end

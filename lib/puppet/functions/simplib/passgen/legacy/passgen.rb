@@ -10,7 +10,7 @@
 #   be created in the allotted time, or files not owned by the Puppet
 #   user are present in the password storage directory.
 #
-Puppet::Functions.create_function(:'simplib::passgen::legacy') do
+Puppet::Functions.create_function(:'simplib::legacy::passgen') do
 
   # @param identifier Unique `String` to identify the password usage.
   #
