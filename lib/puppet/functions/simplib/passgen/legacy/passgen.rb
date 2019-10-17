@@ -305,6 +305,7 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy') do
       if options.key?('password')
         passwd = options['password']
       else
+        #FIXME?  Why doesn't this persist the password?
         passwd = gen_password(options)
       end
     end
