@@ -1,5 +1,6 @@
-# Retrieves the list of generated passwords with attributes at
-# the simplib::passgen root folder.
+# Retrieves the list of generated passwords with attributes stored
+# in files on the local files system at
+# `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`.
 #
 # * List will contain the current and previous passwords.
 #   * Names of previous passwords will end in '.last'.

@@ -3,14 +3,13 @@
 #
 # * Supports 2 modes:
 #   * libkv
-#     * Persists the passwords using libkv.
+#     * Password info is stored in a key/value store and accessed using libkv.
 #     * Terminates catalog compilation if `password_options` contains invalid
 #       parameters, any libkv operation fails or the password cannot be
 #       created in the allotted time.
 #   * Legacy
-#     * Uses
-#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`
-#       as the destination directory for password storage.
+#     * Password info is stored in files on the local file system at
+#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`.
 #     * Terminates catalog compilation if the password storage directory
 #       cannot be created/accessed by the Puppet user, the password cannot
 #       be created in the allotted time, or files not owned by the Puppet

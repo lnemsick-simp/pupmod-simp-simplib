@@ -1,8 +1,8 @@
 # Generates/retrieves a random password string or its hash for a
 # passed identifier.
 #
-# * Uses `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`
-#   as the destination directory for password storage.
+# * Password info is stored in files on the local file system at
+#   `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`.
 # * The minimum length password that this function will return is `8`
 #   characters.
 # * Terminates catalog compilation if the password storage directory

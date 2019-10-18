@@ -1,5 +1,6 @@
 # Using libkv, retrieves the list of generated passwords with attributes and
-# the list of sub-folders stored at a simplib::passgen folder.
+# the list of sub-folders stored at a simplib::passgen folder in a key/value
+# store.
 #
 # * List will contain the current and previous passwords.
 #   * Names of previous passwords will end in '.last'.

@@ -2,15 +2,17 @@
 #
 # * Supports 2 modes:
 #   * libkv
-#     * Passwords stored in a key/value store and retrieved using libkv.
+#     * Password info is stored in a key/value store and retrieved using libkv.
 #     * Terminates catalog compilation if any libkv operation fails.
 #   * Legacy
-#     * Passwords stored on local file system at
-#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`
+#     * Password info is stored in files on the local file system at
+#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`.
 #     * Terminates catalog compilation if the password storage directory
 #       cannot be accessed by the user.
 # * To enable the libkv mode, set `simplib::passgen::libkv` to `true`
 #   in hieradata. When that setting absent or false, legacy mode will be used.
+# * Terminates compilation if a libkv operation fails or a legacy password file
+#   is inaccessible by the user.
 #
 Puppet::Functions.create_function(:'simplib::passgen::get') do
 

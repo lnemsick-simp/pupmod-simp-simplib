@@ -1,4 +1,4 @@
-# Retrieves the list of  generated passwords with attributes and the
+# Retrieves the list of  enerated passwords with attributes and the
 # list of sub-folders stored at a simplib::passgen folder.
 #
 # * List will contain the current and previous passwords.
@@ -10,11 +10,11 @@
 # * List operation does not recurse into sub-folders.
 # * Supports 2 modes:
 #   * libkv
-#     * Passwords stored in a key/value store and retrieved using libkv.
+#     * Password info is stored in a key/value store and retrieved using libkv.
 #     * Terminates catalog compilation if any libkv operation fails.
 #   * Legacy
-#     * Passwords stored on local file system at
-#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`
+#     * Passwordinfo is stored in files on the local file system at
+#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`.
 #     * Terminates catalog compilation if any password file cannot be accessed
 #       by the user.
 # * To enable libkv implementation, set `simplib::passgen::libkv` to `true`

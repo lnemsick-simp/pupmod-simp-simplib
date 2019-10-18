@@ -1,7 +1,7 @@
 # Generates/retrieves a random password string or its hash for a
 # passed identifier.
 #
-# * Persists the passwords using libkv.
+# * Password info is stored in a key/value store and accessed using libkv.
 # * The minimum length password that this function will return is `8`
 #   characters.
 # * Terminates catalog compilation if `password_options` contains invalid

@@ -1,9 +1,9 @@
 # Retrieves a generated password and any stored attributes that have
-# been stored on a on local file system at
+# been stored in files on the local file system at
 # `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`
 #
-# Terminates catalog compilation if the password storage directory
-# cannot be accessed by the user.
+# Terminates catalog compilation if a legacy password file is inaccessible by
+# the user.
 Puppet::Functions.create_function(:'simplib::passgen::legacy::get') do
 
   # @param identifier Unique `String` to identify the password usage.

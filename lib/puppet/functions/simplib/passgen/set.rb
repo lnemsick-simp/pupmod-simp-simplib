@@ -1,15 +1,14 @@
-# Sets a generated password with attributes, optionally backing up an
-# existing value for the password
+# Sets a generated password with attributes, optionally backing up
+# existing information for the password
 #
 # * Backed up password has an identifier `<identifier>.last`
 # * Supports 2 modes:
 #   * libkv
-#     * Persists the passwords using libkv.
+#     * Password info is stored in a key/value store and stored using libkv.
 #     * Terminates catalog compilation if any libkv operation fails.
 #   * Legacy
-#     * Uses
-#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`
-#       as the destination directory for password storage.
+#     * Password info is stored in files on the local file system at
+#       `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`.
 #     * Terminates catalog compilation if any password files cannot be
 #       be created/modified by the user.
 # * To enable libkv implementation, set `simplib::passgen::libkv` to `true`

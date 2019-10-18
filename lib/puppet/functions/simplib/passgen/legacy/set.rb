@@ -1,5 +1,6 @@
-# Sets a generated password with attributes, optionally backing up an
-# existing value for the password
+# Stores a generated password with attributes in files on the local filesystem at
+# `Puppet.settings[:vardir]/simp/environments/$environment/simp_autofiles/gen_passwd/`,
+# optionally backing up existing password information for the identifier.
 #
 # * Backed up password has an identifier `<identifier>.last`
 # * Supports 2 modes:

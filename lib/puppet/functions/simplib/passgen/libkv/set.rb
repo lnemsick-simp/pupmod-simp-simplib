@@ -1,5 +1,5 @@
 # Using libkv, sets a generated password with attributes, optionally backing
-# up an existing value for the password
+# up existing password information for the identifier.
 #
 # * Backed up password has an identifier `<identifier>.last`
 # * Terminates catalog compilation if any libkv operation fails.

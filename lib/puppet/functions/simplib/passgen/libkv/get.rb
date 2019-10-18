@@ -1,4 +1,5 @@
-# Retrieves a generated password and any stored attributes using libkv
+# Retrieves a generated password and any stored attributes from a
+# key/value store using libkv
 #
 # Terminates catalog compilation if any libkv operation fails.
 #
