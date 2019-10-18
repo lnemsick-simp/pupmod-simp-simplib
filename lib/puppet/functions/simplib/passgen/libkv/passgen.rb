@@ -142,7 +142,6 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
 
     # internal settings
     settings = {}
-    settings['key_root_dir'] = 'gen_passwd'
     settings['min_password_length'] = 8
     settings['default_password_length'] = 32
     settings['crypt_map'] = {
@@ -192,7 +191,6 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
 
     # set internal options
     options['length_configured'] = password_options.has_key?('length')
-    options['key_root_dir']      = settings['key_root_dir']
 
     if options['length'].to_s !~ /^\d+$/
       raise ArgumentError,
@@ -235,7 +233,7 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
   # Create a <password,salt> pair and then store it in the key/value store
   # @return [password, salt]
   # @raise Timeout::Error if password or salt generation times out
-  def create_and_store_password(password_key, options, libkv_options)
+  def create_and_store_password(identifier, options, libkv_options)
     password = call_function('simplib::gen_random_password',
       options['length'],
       options['complexity'],
@@ -252,7 +250,9 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
       options['gen_timeout_seconds']
     )
 
-    store_password_info(password, salt, options, password_key, libkv_options)
+    call_function('simplib::passgen::libkv::set',
+      identifier, password, salt, options, false, libkv_options)
+
     [password, salt]
   end
 
@@ -271,7 +271,6 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
   # @raise if any libkv operation fails or password/salt generation times out.
   #
   def get_current_password(identifier, options, libkv_options)
-    current_key = "#{options['key_root_dir']}/#{identifier}"
     password = nil
     salt = nil
     generate = false
@@ -286,14 +285,15 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
       salt = password_info['value']['salt']
       unless valid_length?(password, options)
         # store old password
-        last_key = "#{current_key}.last"
-        store_password_info(password, salt, options, last_key, libkv_options)
+        last_id = "#{identifier}.last"
+        call_function('simplib::passgen::libkv::set',
+          last_id, password, salt, options, false, libkv_options)
         generate = true
       end
     end
 
     if generate
-      password, salt = create_and_store_password(current_key, options,
+      password, salt = create_and_store_password(identifier, options,
         libkv_options)
     end
 
@@ -317,9 +317,9 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
   def get_last_password(identifier, options, libkv_options)
     password = nil
     salt = nil
-
-    password_info = call_function('simplib::passgen::libkv::get',
-      identifier + '.last', libkv_options)
+    last_id = "#{identifier}.last"
+    password_info = call_function('simplib::passgen::libkv::get', last_id,
+      libkv_options)
 
     if password_info.empty?
       password_info = call_function('simplib::passgen::libkv::get',
@@ -333,8 +333,7 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
         " manifest!"
       Puppet.warning warn_msg
       # generate password and salt and then store
-      last_key = "#{options['key_root_dir']}/#{identifier}.last"
-      password, salt = create_and_store_password(last_key, options,
+      password, salt = create_and_store_password(last_id, options,
         libkv_options)
     else
       password = password_info['value']['password']
@@ -342,18 +341,6 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
     end
 
     [password, salt]
-  end
-
-  # store a password and its salt in the key/value store along with
-  # metadata containing the password's complexity and complex_only settings
-  def store_password_info(password, salt, options, password_key, libkv_options)
-    key_info = { 'password' => password, 'salt' => salt }
-    metadata = {
-      'complexity'   => options['complexity'],
-      'complex_only' => options['complex_only']
-    }
-
-    call_function('libkv::put', password_key, key_info, metadata, libkv_options)
   end
 
   # @return whether password length conforms to user specification

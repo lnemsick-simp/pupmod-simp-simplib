@@ -97,7 +97,7 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::list') do
   end
 
   def list(folder=nil, libkv_options={'app_id' => 'simplib::passgen'})
-    keydir = 'gen_passwd'
+    keydir = call_function('simplib::passgen::libkv::root_dir')
     unless folder.nil? || ( (folder.is_a?(String)) && (folder.empty?) )
       keydir = File.join(keydir, folder)
     end

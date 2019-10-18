@@ -87,7 +87,7 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::get') do
   end
 
   def get(identifier, libkv_options={'app_id' => 'simplib::passgen'})
-    key_root_dir = 'gen_passwd'
+    key_root_dir = call_function('simplib::passgen::libkv::root_dir')
     key = "#{key_root_dir}/#{identifier}"
     password_info = {}
     if call_function('libkv::exists', key, libkv_options)
