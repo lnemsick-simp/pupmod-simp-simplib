@@ -275,16 +275,21 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
     password = nil
     salt = nil
     generate = false
-    if call_function('libkv::exists', current_key, libkv_options)
-      password, salt = retrieve_password_info(current_key, libkv_options)
+
+    password_info = call_function('simplib::passgen::libkv::get', identifier,
+      libkv_options)
+
+    if password_info.empty?
+      generate = true
+    else
+      password = password_info['value']['password']
+      salt = password_info['value']['salt']
       unless valid_length?(password, options)
         # store old password
         last_key = "#{current_key}.last"
         store_password_info(password, salt, options, last_key, libkv_options)
         generate = true
       end
-    else
-      generate = true
     end
 
     if generate
@@ -310,33 +315,31 @@ Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
   # @raise if any libkv operation fails or password/salt generation times out.
   #
   def get_last_password(identifier, options, libkv_options)
-    current_key = "#{options['key_root_dir']}/#{identifier}"
-    last_key = "#{current_key}.last"
     password = nil
     salt = nil
-    if call_function('libkv::exists', last_key, libkv_options)
-      password, salt = retrieve_password_info(last_key, libkv_options)
-    elsif call_function('libkv::exists', current_key, libkv_options)
-      password, salt = retrieve_password_info(current_key, libkv_options)
-    else
+
+    password_info = call_function('simplib::passgen::libkv::get',
+      identifier + '.last', libkv_options)
+
+    if password_info.empty?
+      password_info = call_function('simplib::passgen::libkv::get',
+        identifier, libkv_options)
+    end
+
+    if password_info.empty?
       warn_msg = "Could not retrieve a last or current value for" +
         " #{identifier}. Generating a new value for 'last'. Please ensure" +
         " that you have used simplib::passgen in the proper order in your" +
         " manifest!"
       Puppet.warning warn_msg
       # generate password and salt and then store
+      last_key = "#{options['key_root_dir']}/#{identifier}.last"
       password, salt = create_and_store_password(last_key, options,
         libkv_options)
+    else
+      password = password_info['value']['password']
+      salt = password_info['value']['salt']
     end
-
-    [password, salt]
-  end
-
-  # @return [password, salt] retrieved from the key/value store
-  def retrieve_password_info(password_key, libkv_options)
-    key_info = call_function('libkv::get', password_key, libkv_options)['value']
-    password = key_info['password']
-    salt = key_info['salt']
 
     [password, salt]
   end
