@@ -43,6 +43,7 @@ Puppet::Functions.create_function(:'simplib::passgen::legacy::get') do
       if password_file =~ /\.last$/
         salt_file = "#{password_file.gsub('.last','')}.salt.last"
       end
+
       if File.exist?(salt_file)
         salt = IO.readlines(salt_file)[0].to_s.chomp
         password_info['value']['salt'] = salt
