@@ -8,7 +8,7 @@
 #   parameters, any libkv operation fails or the password cannot be created
 #   in the allotted time.
 #
-Puppet::Functions.create_function(:'simplib::libkv::passgen') do
+Puppet::Functions.create_function(:'simplib::passgen::libkv::passgen') do
 
   # @param identifier Unique `String` to identify the password usage.
   #   Must conform to the following:
