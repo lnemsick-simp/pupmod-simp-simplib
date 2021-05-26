@@ -1,3 +1,16 @@
+* Wed May 26 2021 Liz Nemsick <lnemsick.simp@gmail.com> - 4.8.1
+- When simpkv mode is enabled for simp::passgen, downcase the identifier
+  used in each simplib::passgen call.
+  ** Only impacts early adopters of the experimental simpkv mode.**
+  - Existing passwords will not be removed and can be found on the
+    on the local filesystem in files named for the original identifiers.
+  - If you do not want the regenerated passwords, you can restore
+    the previous values using `simp cli passgen` commands or
+    via Puppet manifests.
+  - Users switching from legacy mode to simpkv mode will be provided
+    instructions on how to export existing passwords from legacy storage
+    and then import them into simpkv storage.
+
 * Thu Apr 29 2021 Trevor Vaughan <tvaughan@onyxpoint.com> - 4.8.0
 - Add a `simplib::params2hash()` function to return all of the calling scope's
   parameters as a Hash

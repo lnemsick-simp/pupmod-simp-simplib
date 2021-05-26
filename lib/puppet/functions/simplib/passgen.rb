@@ -25,12 +25,14 @@ Puppet::Functions.create_function(:'simplib::passgen') do
   #   Must conform to the following:
   #   * Identifier must contain only the following characters:
   #     * a-z
-  #     * A-Z
+  #     * A-Z when in legacy mode
   #     * 0-9
   #     * The following special characters:
   #       * `._:-` for the legacy implementation
   #       * `._:-/` for the simpkv-enabled implementation
   #   * Identifier may not contain '/./' or '/../' sequences.
+  #   * When in simpkv mode, the identifier will be automatically
+  #     downcased.
   #
   # @param password_options
   #   Password options
@@ -159,7 +161,8 @@ Puppet::Functions.create_function(:'simplib::passgen') do
 
     password = nil
     if use_simpkv
-      password = call_function('simplib::passgen::simpkv::passgen', identifier,
+      $_identifier = downcase($identifier)
+      password = call_function('simplib::passgen::simpkv::passgen', $_identifier,
         password_options, simpkv_options)
     else
       password = call_function('simplib::passgen::legacy::passgen', identifier,
